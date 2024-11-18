@@ -1,0 +1,6 @@
+uvicorn~=0.32.0
+protobuf~=5.28.3
+pydantic~=2.9.2
+fastapi~=0.115.5
+SQLAlchemy~=2.0.36
+tqdm~=4.67.0
