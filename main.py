@@ -365,9 +365,7 @@ def get_script_likes(script_id: uuid.UUID, db: Session = Depends(get_db)):
     try:
         script_like = db.query(ScriptLikes).filter(ScriptLikes.script_id == script_id).first()
         if not script_like:
-            raise HTTPException(status_code=404, detail="Script not found")
-        if script_like.like_count == 0:
-            return {"script_id": script_id, "message": "This script has no likes yet."}
+            return {"script_id": script_id, "like_count": 0}
         return {"script_id": script_id, "like_count": script_like.like_count}
     except Exception as e:
         logger.error(f"❌ An unexpected error occurred: {e}")

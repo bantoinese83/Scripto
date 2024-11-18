@@ -4,7 +4,7 @@ import { Code2, ThumbsUp, Clipboard } from 'lucide-react';
 import { api } from '../api';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { dracula } from 'react-syntax-highlighter/dist/esm/styles/prism';
-import { toast } from 'react-toastify'; // For user feedback
+import { toast } from 'react-toastify';
 
 interface Props {
   script: ScriptMetadata;
@@ -37,9 +37,9 @@ export const ScriptCard: React.FC<Props> = ({ script }) => {
         const response = await api.likeScript(script.id);
         setLikeCount(response.like_count);
         toast.success('Script liked!');
-      } catch (error: any) { // Type the error for better handling
+      } catch (error: any) {
         console.error('Error liking script:', error);
-        toast.error(error.message || 'Failed to like script.'); // More specific error message
+        toast.error(error.message || 'Failed to like script.');
       }
     }
   };
@@ -47,13 +47,13 @@ export const ScriptCard: React.FC<Props> = ({ script }) => {
   const handleCopy = async (e: React.MouseEvent) => {
     e.stopPropagation();
     try {
-        await navigator.clipboard.writeText(script.script_content);
-        toast.success('Script copied to clipboard!'); // Use toast for feedback
+      await navigator.clipboard.writeText(script.script_content);
+      toast.success('Script copied to clipboard!');
     } catch (error) {
-        console.error('Error copying script:', error);
-        toast.error('Failed to copy script.'); // Error feedback
+      console.error('Error copying script:', error);
+      toast.error('Failed to copy script.');
     }
-};
+  };
 
   return (
     <div
