@@ -9,3 +9,11 @@ export interface ScriptMetadata {
   category: string;
   script_content: string;
 }
+
+export interface AnalyticsResponse {
+    total_scripts: number;
+    total_likes: number;
+    most_liked_script: ScriptMetadata | null;
+    recent_uploads: number;
+    trending_scripts: number;
+}

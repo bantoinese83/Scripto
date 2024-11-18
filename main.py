@@ -1,22 +1,23 @@
 import logging
 import os
 import uuid
-from datetime import datetime, timezone
-
-import uvicorn
-from pydantic import BaseModel
+from datetime import datetime, timezone, timedelta
 from enum import Enum
 from typing import Optional
 
 import google.generativeai as genai
+import uvicorn
 from fastapi import FastAPI, File, UploadFile, HTTPException, Depends
 from fastapi import Query
+from fastapi.middleware.cors import CORSMiddleware
 from google.generativeai import GenerationConfig
-from sqlalchemy import create_engine, Column, String, Text, Integer, DateTime, desc
+from pydantic import BaseModel
+from pydantic import TypeAdapter
+from pydantic.v1 import ConfigDict, Field
+from sqlalchemy import create_engine, Column, String, Text, Integer, DateTime, desc, func
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker, Session
-from fastapi.middleware.cors import CORSMiddleware
 from tqdm import tqdm
 
 # Initialize FastAPI app
@@ -29,7 +30,7 @@ app = FastAPI(
 # --- Setup CORS ---
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=["http://localhost:5173"],  # Adjust this to your frontend URL
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -74,6 +75,11 @@ class ScriptMetadata(Base):
     category = Column(String)
     upload_time = Column(DateTime, default=lambda: datetime.now(timezone.utc))  # Updated column
 
+    def __repr__(self):
+        return f"<ScriptMetadata id={self.id} title={self.title}>"
+
+
+
 
 class ScriptLikes(Base):
     __tablename__ = "script_likes"
@@ -93,6 +99,33 @@ class UpdateMetadata(BaseModel):
     description: Optional[str]
     how_it_works: Optional[str]
     category: Optional[str]
+
+
+class ScriptMetadataModel(BaseModel):
+    id: uuid.UUID
+    filename: str
+    title: str
+    language: str
+    tags: str
+    description: str
+    how_it_works: str
+    script_content: str
+    category: str
+    upload_time: datetime
+
+    class Config:
+        arbitrary_types_allowed = True
+        from_attributes = True
+
+class AnalyticsResponse(BaseModel):
+    total_scripts: int
+    total_likes: int
+    most_liked_script: Optional[ScriptMetadataModel]
+    recent_uploads: int
+    trending_scripts: int
+
+    class Config:
+        arbitrary_types_allowed = True
 
 
 def get_db():
@@ -170,6 +203,7 @@ def validate_metadata(metadata: dict):
             logger.error(f"❌ Metadata validation failed: {field} is missing.")
             raise ValueError(f"Failed to generate complete metadata: {field} is missing.")
 
+
 @app.post("/v1/upload-script/", tags=["📤 Upload Script"],
           summary="Upload a script and generate metadata using Google Gemini.",
           description="This endpoint allows you to upload a script file and generate metadata using Google Gemini.")
@@ -225,6 +259,7 @@ async def upload_script_v1(file: UploadFile = File(...), db: Session = Depends(g
     except Exception as e:
         logger.error(f"❌ An unexpected error occurred: {e}")
         raise HTTPException(status_code=500, detail=f"An error occurred: {str(e)}")
+
 
 @app.get("/v1/search-scripts/", tags=["🔍 Search Scripts"],
          summary="Search for scripts based on metadata.",
@@ -417,6 +452,35 @@ def get_script_by_id(script_id: uuid.UUID, db: Session = Depends(get_db)):
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"An error occurred: {str(e)}")
 
+
+
+@app.get("/v1/analytics/", tags=["📊 Analytics"], response_model=AnalyticsResponse)
+def get_analytics(db: Session = Depends(get_db)):
+    """Get analytics and metrics."""
+    try:
+        total_scripts = db.query(ScriptMetadata).count()
+        total_likes = db.query(ScriptLikes).with_entities(func.sum(ScriptLikes.like_count)).scalar() or 0
+        most_liked_script = db.query(ScriptMetadata).join(ScriptLikes, ScriptMetadata.id == ScriptLikes.script_id).order_by(
+            desc(ScriptLikes.like_count)).first()
+        recent_uploads = db.query(ScriptMetadata).filter(
+            ScriptMetadata.upload_time >= datetime.now(timezone.utc) - timedelta(days=7)).count()
+        trending_scripts = db.query(ScriptMetadata).join(ScriptLikes, ScriptMetadata.id == ScriptLikes.script_id).filter(
+            ScriptLikes.like_count > 100).count()
+
+        most_liked_script_instance = None
+        if (most_liked_script):
+            most_liked_script_instance = ScriptMetadataModel.model_validate(most_liked_script)
+
+        return AnalyticsResponse(
+            total_scripts=total_scripts,
+            total_likes=total_likes,
+            most_liked_script=most_liked_script_instance,
+            recent_uploads=recent_uploads,
+            trending_scripts=trending_scripts
+        )
+    except Exception as e:
+        logger.error(f"❌ An unexpected error occurred: {e}")
+        raise HTTPException(status_code=500, detail=f"An error occurred: {str(e)}")
 
 if __name__ == "__main__":
     uvicorn.run(app, host="localhost", port=8000)

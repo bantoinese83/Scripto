@@ -1,5 +1,5 @@
-import axios, {AxiosError} from 'axios';
-import {ScriptMetadata} from './types';
+import axios, { AxiosError } from 'axios';
+import {AnalyticsResponse, ScriptMetadata} from './types';
 
 const API_BASE_URL = 'http://localhost:8000/v1';
 
@@ -45,7 +45,7 @@ export const api = {
         category?: string;
     }): Promise<ScriptMetadata[]> => {
         try {
-            const response = await axios.get<ScriptMetadata[]>(`${API_BASE_URL}/search-scripts/`, {params});
+            const response = await axios.get<ScriptMetadata[]>(`${API_BASE_URL}/search-scripts/`, { params });
             return response.data;
         } catch (error) {
             handleError(error);
@@ -53,13 +53,9 @@ export const api = {
         }
     },
 
-
     likeScript: async (id: string): Promise<{ script_id: string; like_count: number }> => {
         try {
-            const response = await axios.post<{
-                script_id: string;
-                like_count: number
-            }>(`${API_BASE_URL}/like-script/${id}/`);
+            const response = await axios.post<{ script_id: string; like_count: number }>(`${API_BASE_URL}/like-script/${id}/`);
             return response.data;
         } catch (error) {
             handleError(error);
@@ -69,10 +65,7 @@ export const api = {
 
     getScriptLikes: async (id: string): Promise<{ script_id: string; like_count: number }> => {
         try {
-            const response = await axios.get<{
-                script_id: string;
-                like_count: number
-            }>(`${API_BASE_URL}/get-script-likes/${id}/`);
+            const response = await axios.get<{ script_id: string; like_count: number }>(`${API_BASE_URL}/get-script-likes/${id}/`);
             return response.data;
         } catch (error) {
             handleError(error);
@@ -82,7 +75,7 @@ export const api = {
 
     getTrendingScripts: async (limit: number = 10): Promise<ScriptMetadata[]> => {
         try {
-            const response = await axios.get<ScriptMetadata[]>(`${API_BASE_URL}/trending-scripts/`, {params: {limit}});
+            const response = await axios.get<ScriptMetadata[]>(`${API_BASE_URL}/trending-scripts/`, { params: { limit } });
             return response.data;
         } catch (error) {
             handleError(error);
@@ -92,16 +85,27 @@ export const api = {
 
     getRecentScripts: async (limit: number = 10): Promise<ScriptMetadata[]> => {
         try {
-            const response = await axios.get<ScriptMetadata[]>(`${API_BASE_URL}/recent-scripts/`, {params: {limit}});
+            const response = await axios.get<ScriptMetadata[]>(`${API_BASE_URL}/recent-scripts/`, { params: { limit } });
             return response.data;
         } catch (error) {
             handleError(error);
             throw error;
         }
     },
+
     getScriptById: async (id: string): Promise<ScriptMetadata> => {
         try {
             const response = await axios.get<ScriptMetadata>(`${API_BASE_URL}/get-script-by-id/${id}/`);
+            return response.data;
+        } catch (error) {
+            handleError(error);
+            throw error;
+        }
+    },
+
+    getAnalytics: async (): Promise<AnalyticsResponse> => {
+        try {
+            const response = await axios.get<AnalyticsResponse>(`${API_BASE_URL}/analytics/`);
             return response.data;
         } catch (error) {
             handleError(error);
