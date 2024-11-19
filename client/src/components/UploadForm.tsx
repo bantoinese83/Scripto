@@ -1,5 +1,5 @@
 import React, { useRef, useState } from 'react';
-import { Upload, Loader2, AlertCircle, CheckCircle } from 'lucide-react';
+import { Upload, Loader2, AlertCircle } from 'lucide-react';
 import { api } from '../api';
 import { ScriptMetadata } from '../types';
 import { toast } from 'react-toastify';
