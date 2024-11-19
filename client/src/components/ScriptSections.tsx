@@ -55,9 +55,8 @@ export const ScriptSections: React.FC = () => {
             <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
               {memoizedScripts.trending.map((script) => (
                 <ScriptCard
-                  key={script.id}
-                  script={script}
-                />
+                    key={script.id}
+                    script={script} loading={false}                />
               ))}
             </div>
           </section>
@@ -70,9 +69,8 @@ export const ScriptSections: React.FC = () => {
             <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
               {memoizedScripts.recent.map((script) => (
                 <ScriptCard
-                  key={script.id}
-                  script={script}
-                />
+                    key={script.id}
+                    script={script} loading={false}                />
               ))}
             </div>
           </section>

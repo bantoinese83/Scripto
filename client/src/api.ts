@@ -1,5 +1,5 @@
 import axios, { AxiosError } from 'axios';
-import {AnalyticsResponse, ScriptMetadata} from './types';
+import { AnalyticsResponse, ScriptMetadata } from './types';
 
 const API_BASE_URL = 'http://localhost:8000/v1';
 
@@ -106,6 +106,36 @@ export const api = {
     getAnalytics: async (): Promise<AnalyticsResponse> => {
         try {
             const response = await axios.get<AnalyticsResponse>(`${API_BASE_URL}/analytics/`);
+            return response.data;
+        } catch (error) {
+            handleError(error);
+            throw error;
+        }
+    },
+
+    downvoteScript: async (id: string): Promise<{ script_id: string; downvote_count: number }> => {
+        try {
+            const response = await axios.post<{ script_id: string; downvote_count: number }>(`${API_BASE_URL}/downvote-script/${id}/`);
+            return response.data;
+        } catch (error) {
+            handleError(error);
+            throw error;
+        }
+    },
+
+    getScriptDownvotes: async (id: string): Promise<{ script_id: string; downvote_count: number }> => {
+        try {
+            const response = await axios.get<{ script_id: string; downvote_count: number }>(`${API_BASE_URL}/get-script-downvotes/${id}/`);
+            return response.data;
+        } catch (error) {
+            handleError(error);
+            throw error;
+        }
+    },
+
+    getAllTags: async (): Promise<string[]> => {
+        try {
+            const response = await axios.get<string[]>(`${API_BASE_URL}/get-all-tags/`);
             return response.data;
         } catch (error) {
             handleError(error);

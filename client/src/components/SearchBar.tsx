@@ -1,24 +1,71 @@
-import React from 'react';
-import { Search } from 'lucide-react';
+import React, { useEffect, useState, useCallback } from 'react';
+import { Search, XCircle } from 'lucide-react';
+import Select from 'react-select';
+import { api } from '../api';
+import debounce from 'lodash.debounce';
 
 interface Props {
   onSearch: (params: { title?: string; language?: string; tags?: string; category?: string }) => void;
 }
 
 export const SearchBar: React.FC<Props> = ({ onSearch }) => {
-  const [searchParams, setSearchParams] = React.useState({
+  const [searchParams, setSearchParams] = useState({
     title: '',
     language: '',
     tags: '',
     category: '',
   });
+  const [tags, setTags] = useState<string[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [error] = useState<string | null>(null);
+
+  useEffect(() => {
+    const fetchTags = async () => {
+      try {
+        const response = await api.getAllTags();
+        setTags(response);
+      } catch (error) {
+        console.error('Error fetching tags:', error);
+      }
+    };
+
+    fetchTags();
+  }, []);
+
+  const debouncedSearch = useCallback(
+    debounce((params: { title?: string; language?: string; tags?: string; category?: string; }) => {
+      onSearch(params);
+      setLoading(false);
+    }, 500),
+    []
+  );
 
   const handleSearch = (e: React.FormEvent) => {
     e.preventDefault();
+    setLoading(true);
     const filteredParams = Object.fromEntries(
       Object.entries(searchParams).filter(([_, value]) => value !== '')
     );
-    onSearch(filteredParams);
+    debouncedSearch(filteredParams);
+  };
+
+  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    setSearchParams({ ...searchParams, [e.target.id]: e.target.value });
+  };
+
+  const handleTagChange = (selectedOptions: any) => {
+    const selectedTags = selectedOptions ? selectedOptions.map((option: any) => option.value).join(',') : '';
+    setSearchParams({ ...searchParams, tags: selectedTags });
+  };
+
+  const handleClear = () => {
+    setSearchParams({
+      title: '',
+      language: '',
+      tags: '',
+      category: '',
+    });
+    onSearch({});
   };
 
   return (
@@ -37,7 +84,7 @@ export const SearchBar: React.FC<Props> = ({ onSearch }) => {
               type="text"
               id="title"
               value={searchParams.title}
-              onChange={(e) => setSearchParams({ ...searchParams, title: e.target.value })}
+              onChange={handleInputChange}
               className="w-full rounded-md border border-gray-300 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-500"
               placeholder="Search by title..."
             />
@@ -50,7 +97,7 @@ export const SearchBar: React.FC<Props> = ({ onSearch }) => {
               type="text"
               id="language"
               value={searchParams.language}
-              onChange={(e) => setSearchParams({ ...searchParams, language: e.target.value })}
+              onChange={handleInputChange}
               className="w-full rounded-md border border-gray-300 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-500"
               placeholder="Search by language..."
             />
@@ -59,13 +106,13 @@ export const SearchBar: React.FC<Props> = ({ onSearch }) => {
             <label htmlFor="tags" className="block text-sm font-medium text-gray-700 mb-1">
               Tags
             </label>
-            <input
-              type="text"
+            <Select
               id="tags"
-              value={searchParams.tags}
-              onChange={(e) => setSearchParams({ ...searchParams, tags: e.target.value })}
+              isMulti
+              options={tags.map(tag => ({ value: tag, label: tag }))}
+              onChange={handleTagChange}
               className="w-full rounded-md border border-gray-300 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-500"
-              placeholder="Search by tags..."
+              placeholder="Select tags..."
             />
           </div>
           <div>
@@ -76,7 +123,7 @@ export const SearchBar: React.FC<Props> = ({ onSearch }) => {
               type="text"
               id="category"
               value={searchParams.category}
-              onChange={(e) => setSearchParams({ ...searchParams, category: e.target.value })}
+              onChange={handleInputChange}
               className="w-full rounded-md border border-gray-300 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-500"
               placeholder="Search by category..."
             />
@@ -90,7 +137,17 @@ export const SearchBar: React.FC<Props> = ({ onSearch }) => {
             <Search className="w-4 h-4 mr-2" />
             Search
           </button>
+          <button
+            type="button"
+            onClick={handleClear}
+            className="ml-2 inline-flex items-center px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-red-600 hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-red-500"
+          >
+            <XCircle className="w-4 h-4 mr-2" />
+            Clear
+          </button>
         </div>
+        {loading && <p className="text-center text-gray-500">Loading...</p>}
+        {error && <p className="text-center text-red-500">{error}</p>}
       </div>
     </form>
   );

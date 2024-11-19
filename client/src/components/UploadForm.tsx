@@ -2,8 +2,9 @@ import React, { useRef, useState } from 'react';
 import { Upload, Loader2, AlertCircle, CheckCircle } from 'lucide-react';
 import { api } from '../api';
 import { ScriptMetadata } from '../types';
-import { ScriptCard } from './ScriptCard';
-import { toast } from 'react-toastify';  // Import toast for notifications
+import { toast } from 'react-toastify';
+import Confetti from 'react-confetti';
+import ScriptDetailsModal from './ScriptDetailsModal';
 
 interface Props {
   onUploadSuccess: (newScript: ScriptMetadata) => void;
@@ -14,6 +15,8 @@ export const UploadForm: React.FC<Props> = ({ onUploadSuccess }) => {
   const [isUploading, setIsUploading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [uploadedScript, setUploadedScript] = useState<ScriptMetadata | null>(null);
+  const [showConfetti, setShowConfetti] = useState(false);
+  const [isModalOpen, setIsModalOpen] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const handleDragOver = (e: React.DragEvent) => {
@@ -41,39 +44,44 @@ export const UploadForm: React.FC<Props> = ({ onUploadSuccess }) => {
       await uploadFile(file);
     }
   };
-const uploadFile = async (file: File) => {
+
+  const uploadFile = async (file: File) => {
     try {
-        setIsUploading(true);
-        setError(null);
+      setIsUploading(true);
+      setError(null);
 
-        const scriptData = await api.uploadScript(file);
-        console.log('Uploaded script data:', scriptData); // Log the returned script data
+      const scriptData = await api.uploadScript(file);
+      if (!scriptData.id) {
+        throw new Error('Script ID is missing in the response');
+      }
 
-        if (!scriptData.id) {
-            throw new Error('Script ID is missing in the response');
-        }
+      const newScript = await api.getScriptById(scriptData.id);
+      onUploadSuccess(newScript);
+      setUploadedScript(newScript);
+      setShowConfetti(true);
+      setIsModalOpen(true);
 
-        // Fetch the newly created script including the ID
-        const newScript = await api.getScriptById(scriptData.id);
+      if (fileInputRef.current) {
+        fileInputRef.current.value = '';
+      }
 
-        onUploadSuccess(newScript);
-        setUploadedScript(newScript);
-
-        if (fileInputRef.current) {
-            fileInputRef.current.value = '';
-        }
-
-        toast.success('Script uploaded successfully!'); // Success notification
-
-    } catch (err: unknown) { // Use unknown instead of any
-        const message = err instanceof Error ? err.message : 'Failed to upload file';
-        setError(message);
-        console.error('Error uploading file:', err);
-        toast.error(message); // Error notification
+      toast.success('Script uploaded successfully!');
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : 'Failed to upload file';
+      setError(message);
+      console.error('Error uploading file:', err);
+      toast.error(message);
     } finally {
-        setIsUploading(false);
+      setIsUploading(false);
     }
-};
+  };
+
+  const handleCopy = (e: React.MouseEvent) => {
+    if (uploadedScript) {
+      navigator.clipboard.writeText(uploadedScript.script_content);
+      toast.success('Script content copied to clipboard!');
+    }
+  };
 
   return (
     <div className="w-full max-w-4xl mx-auto mb-8">
@@ -129,15 +137,15 @@ const uploadFile = async (file: File) => {
           <Loader2 className="w-8 h-8 text-indigo-600 animate-spin" />
         </div>
       )}
-       {uploadedScript && (
-        <div className="mt-8">
-          <div className="mb-4 p-4 bg-green-50 border border-green-200 rounded-lg flex items-center gap-2 text-green-700">
-            <CheckCircle className="w-5 h-5 flex-shrink-0" />
-            <p>Script uploaded successfully!</p> {/* Clearer success message */}
-          </div>
-          <ScriptCard script={uploadedScript} />
-        </div>
+      {uploadedScript && (
+        <ScriptDetailsModal
+          isOpen={isModalOpen}
+          onRequestClose={() => setIsModalOpen(false)}
+          script={uploadedScript}
+          handleCopy={handleCopy}
+        />
       )}
+      {showConfetti && <Confetti recycle={false} numberOfPieces={500} onConfettiComplete={() => setShowConfetti(false)} />}
     </div>
   );
 };

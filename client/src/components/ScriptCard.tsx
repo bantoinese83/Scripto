@@ -1,61 +1,86 @@
 import React, { useState, useEffect } from 'react';
-import Modal from 'react-modal';
 import { ScriptMetadata } from '../types';
-import { Code2, ThumbsUp, Clipboard, X } from 'lucide-react';
+import { Code2, CheckCircle, XCircle, Clipboard } from 'lucide-react';
 import { api } from '../api';
-// eslint-disable-next-line @typescript-eslint/ban-ts-comment
-// @ts-expect-error
-import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
-// eslint-disable-next-line @typescript-eslint/ban-ts-comment
-// @ts-expect-error
-import { dracula } from 'react-syntax-highlighter/dist/esm/styles/prism';
 import { toast } from 'react-toastify';
+import { motion } from 'framer-motion';
+import SkeletonLoader from './SkeletonLoader';
+import Tag from './Tag';
+import ScriptDetailsModal from './ScriptDetailsModal';
 
 interface Props {
   script: ScriptMetadata;
+  loading: boolean;
 }
 
-const tagColors = [
-  'bg-red-200 text-red-700',
-  'bg-green-200 text-green-700',
-  'bg-blue-200 text-blue-700',
-  'bg-yellow-200 text-yellow-700',
-  'bg-purple-200 text-purple-700',
-  'bg-pink-200 text-pink-700',
-  'bg-indigo-200 text-indigo-700',
-  'bg-teal-200 text-teal-700',
-];
-
-export const ScriptCard: React.FC<Props> = ({ script }) => {
+export const ScriptCard: React.FC<Props> = ({ script, loading }) => {
   const [isModalOpen, setIsModalOpen] = useState(false);
-  const [likeCount, setLikeCount] = useState<number | null>(null);
-  const [likeMessage, setLikeMessage] = useState<string | null>(null);
+  const [deployCount, setDeployCount] = useState<number | null>(null);
+  const [rejectCount, setRejectCount] = useState<number | null>(null);
+  const [deployMessage, setDeployMessage] = useState<string | null>(null);
+  const [isDeploying, setIsDeploying] = useState(false);
+  const [isRejecting, setIsRejecting] = useState(false);
 
   useEffect(() => {
-    const fetchLikes = async () => {
+    const fetchDeploys = async () => {
       if (script.id) {
         try {
           const response = await api.getScriptLikes(script.id);
-          setLikeCount(response.like_count);
-          setLikeMessage(null);
+          setDeployCount(response.like_count);
+          setDeployMessage(null);
         } catch (error) {
-          console.error('Error fetching likes:', error);
+          console.error('Error fetching deploys:', error);
         }
       }
     };
 
-    fetchLikes();
+    const fetchRejects = async () => {
+      if (script.id) {
+        try {
+          const response = await api.getScriptDownvotes(script.id);
+          setRejectCount(response.downvote_count);
+        } catch (error) {
+          console.error('Error fetching rejects:', error);
+        }
+      }
+    };
+
+    fetchDeploys();
+    fetchRejects();
   }, [script.id]);
 
-  const handleLike = async () => {
+  const handleDeploy = async () => {
     if (script.id) {
       try {
+        setIsDeploying(true);
         const response = await api.likeScript(script.id);
-        setLikeCount(response.like_count);
-        toast.success('Script liked!');
+        setDeployCount(response.like_count);
+        toast.success('Script deployed!');
       } catch (error: any) {
-        console.error('Error liking script:', error);
-        toast.error(error.message || 'Failed to like script.');
+        console.error('Error deploying script:', error);
+        toast.error(error.message || 'Failed to deploy script.');
+      } finally {
+        setIsDeploying(false);
+      }
+    }
+  };
+
+  const handleReject = async () => {
+    if (script.id) {
+      try {
+        setIsRejecting(true);
+        const response = await api.downvoteScript(script.id);
+        setRejectCount(response.downvote_count);
+        toast.success('Script rejected!');
+      } catch (error: any) {
+        console.error('Error rejecting script:', error);
+        if (error.message.includes('IP address has already rejected this script')) {
+          toast.error('You have already rejected this script.');
+        } else {
+          toast.error(error.message || 'Failed to reject script.');
+        }
+      } finally {
+        setIsRejecting(false);
       }
     }
   };
@@ -71,10 +96,14 @@ export const ScriptCard: React.FC<Props> = ({ script }) => {
     }
   };
 
+  if (loading) {
+    return <SkeletonLoader />;
+  }
+
   return (
     <>
       <div
-        className="bg-white rounded-lg shadow-md p-4 transition-all hover:shadow-lg cursor-pointer"
+        className="bg-white rounded-lg shadow-md p-4 transition-all hover:shadow-lg cursor-pointer aspect-square"
         onClick={() => setIsModalOpen(true)}
       >
         <div className="flex justify-between items-start mb-4">
@@ -106,96 +135,48 @@ export const ScriptCard: React.FC<Props> = ({ script }) => {
           <div>
             <p className="text-sm font-medium text-gray-500">Tags</p>
             <div className="flex flex-wrap gap-2">
-              {script.tags ? script.tags.split(',').map((tag, index) => (
-                <span key={index} className={`px-2 py-1 rounded ${tagColors[Math.floor(Math.random() * tagColors.length)]}`}>
-                  {tag}
-                </span>
-              )) : 'No tags available'}
+              {script.tags.split(',').map((tag, index) => (
+                <Tag key={index} tag={tag} />
+              ))}
             </div>
           </div>
 
           <div className="flex items-center gap-2">
-            <button
-              onClick={(e) => { e.stopPropagation(); handleLike(); }}
-              className="p-1 text-indigo-600 hover:bg-indigo-50 rounded"
+            <motion.button
+              onClick={(e) => { e.stopPropagation(); handleDeploy(); }}
+              className={`p-1 rounded ${deployCount ? 'bg-indigo-600 text-white' : 'text-indigo-600 hover:bg-indigo-50'}`}
+              whileTap={{ scale: 1.2 }}
+              disabled={isDeploying}
             >
-              <ThumbsUp className="w-5 h-5" />
-            </button>
-            {likeMessage ? (
-              <p className="text-gray-700">{likeMessage}</p>
+              <CheckCircle className="w-5 h-5" />
+            </motion.button>
+            {deployMessage ? (
+              <p className="text-gray-700">{deployMessage}</p>
             ) : (
-              <p className="text-gray-700">{likeCount} Likes</p>
+              <p className="text-gray-700">{deployCount} Deploys</p>
             )}
+          </div>
+
+          <div className="flex items-center gap-2">
+            <motion.button
+              onClick={(e) => { e.stopPropagation(); handleReject(); }}
+              className={`p-1 rounded ${rejectCount ? 'bg-red-600 text-white' : 'text-red-600 hover:bg-red-50'}`}
+              whileTap={{ scale: 1.2 }}
+              disabled={isRejecting}
+            >
+              <XCircle className="w-5 h-5" />
+            </motion.button>
+            <p className="text-gray-700">{rejectCount} Rejects</p>
           </div>
         </div>
       </div>
 
-      <Modal
+      <ScriptDetailsModal
         isOpen={isModalOpen}
         onRequestClose={() => setIsModalOpen(false)}
-        shouldCloseOnOverlayClick={true}
-        contentLabel="Script Details"
-        className="fixed inset-0 flex items-center justify-center p-4 bg-black bg-opacity-50"
-        overlayClassName="fixed inset-0 bg-black bg-opacity-50"
-      >
-        <div className="bg-white rounded-lg shadow-lg p-6 w-full max-w-5xl max-h-[80vh] overflow-y-auto">
-          <div className="flex justify-between items-start mb-4">
-            <h3 className="text-xl font-semibold">{script.title}</h3>
-            <button
-              onClick={() => setIsModalOpen(false)}
-              className="p-1 text-gray-600 hover:bg-gray-50 rounded"
-            >
-              <X className="w-5 h-5" />
-            </button>
-          </div>
-
-          <div className="space-y-4">
-            <div>
-              <p className="text-sm font-medium text-gray-500">Language</p>
-              <p className="text-gray-700">{script.language}</p>
-            </div>
-
-            <div>
-              <p className="text-sm font-medium text-gray-500">Category</p>
-              <p className="text-gray-700">{script.category}</p>
-            </div>
-
-            <div>
-              <p className="text-sm font-medium text-gray-500">Tags</p>
-              <div className="flex flex-wrap gap-2">
-                {script.tags ? script.tags.split(',').map((tag, index) => (
-                  <span key={index} className={`px-2 py-1 rounded ${tagColors[Math.floor(Math.random() * tagColors.length)]}`}>
-                    {tag}
-                  </span>
-                )) : 'No tags available'}
-              </div>
-            </div>
-
-            <div>
-              <p className="text-sm font-medium text-gray-500">Description</p>
-              <p className="text-gray-700">{script.description}</p>
-            </div>
-
-            <div>
-              <p className="text-sm font-medium text-gray-500">How it works</p>
-              <p className="text-gray-700">{script.how_it_works}</p>
-            </div>
-
-            <div>
-              <p className="text-sm font-medium text-gray-500">Script Content</p>
-              <SyntaxHighlighter language={script.language} style={dracula}>
-                {script.script_content}
-              </SyntaxHighlighter>
-              <button
-                onClick={handleCopy}
-                className="mt-2 p-2 bg-indigo-600 text-white rounded hover:bg-indigo-700 flex items-center"
-              >
-                <Clipboard className="w-5 h-5 mr-2" />
-              </button>
-            </div>
-          </div>
-        </div>
-      </Modal>
+        script={script}
+        handleCopy={handleCopy}
+      />
     </>
   );
 };

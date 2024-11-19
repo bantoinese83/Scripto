@@ -1,9 +1,10 @@
 import logging
 import os
 import uuid
-from datetime import datetime, timezone, timedelta
 from enum import Enum
 from typing import Optional
+from fastapi import Request
+from datetime import datetime, timezone, timedelta
 
 import google.generativeai as genai
 import uvicorn
@@ -12,9 +13,7 @@ from fastapi import Query
 from fastapi.middleware.cors import CORSMiddleware
 from google.generativeai import GenerationConfig
 from pydantic import BaseModel
-from pydantic import TypeAdapter
-from pydantic.v1 import ConfigDict, Field
-from sqlalchemy import create_engine, Column, String, Text, Integer, DateTime, desc, func
+from sqlalchemy import create_engine, Column, String, Text, Integer, DateTime, desc, func, ForeignKey
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker, Session
@@ -79,13 +78,32 @@ class ScriptMetadata(Base):
         return f"<ScriptMetadata id={self.id} title={self.title}>"
 
 
-
-
 class ScriptLikes(Base):
     __tablename__ = "script_likes"
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4, index=True)
     script_id = Column(UUID(as_uuid=True), index=True)
     like_count = Column(Integer, default=0)
+
+
+class IPLikes(Base):
+    __tablename__ = "ip_likes"
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4, index=True)
+    ip_address = Column(String, index=True)
+    script_id = Column(UUID(as_uuid=True), ForeignKey('script_metadata.id'), index=True)
+
+
+class IPDownvotes(Base):
+    __tablename__ = "ip_downvotes"
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4, index=True)
+    ip_address = Column(String, index=True)
+    script_id = Column(UUID(as_uuid=True), ForeignKey('script_metadata.id'), index=True)
+
+
+class ScriptDownvotes(Base):
+    __tablename__ = "script_downvotes"
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4, index=True)
+    script_id = Column(UUID(as_uuid=True), index=True)
+    downvote_count = Column(Integer, default=0)
 
 
 # Create the database tables
@@ -116,6 +134,7 @@ class ScriptMetadataModel(BaseModel):
     class Config:
         arbitrary_types_allowed = True
         from_attributes = True
+
 
 class AnalyticsResponse(BaseModel):
     total_scripts: int
@@ -282,9 +301,9 @@ def search_scripts(
         if language:
             query = query.filter(ScriptMetadata.language.ilike(f"%{language}%"))
         if tags:
-            tags_list = tags.split(",")
+            tags_list = [tag.strip() for tag in tags.split(",")]
             for tag in tags_list:
-                query = query.filter(ScriptMetadata.tags.ilike(f"%{tag.strip()}%"))
+                query = query.filter(ScriptMetadata.tags.ilike(f"%{tag}%"))
         if category:
             query = query.filter(ScriptMetadata.category.ilike(f"%{category}%"))
 
@@ -310,6 +329,21 @@ def get_all_scripts(db: Session = Depends(get_db)):
         logger.error(f"❌ An unexpected error occurred: {e}")
         raise HTTPException(status_code=500, detail=f"An error occurred: {str(e)}")
 
+@app.get("/v1/get-all-tags/", tags=["🏷️ Get All Tags"], summary="Get all unique tags", description="This endpoint allows you to retrieve all unique tags from the scripts.")
+def get_all_tags(db: Session = Depends(get_db)):
+    """
+    Endpoint to retrieve all unique tags from the scripts.
+    """
+    try:
+        tags = db.query(ScriptMetadata.tags).distinct().all()
+        unique_tags = set()
+        for tag_list in tags:
+            for tag in tag_list[0].split(","):
+                unique_tags.add(tag.strip())
+        return list(unique_tags)
+    except Exception as e:
+        logger.error(f"❌ An unexpected error occurred: {e}")
+        raise HTTPException(status_code=500, detail=f"An error occurred: {str(e)}")
 
 @app.put("/v1/update-script/{script_id}/", tags=["🔄 Update Script"],
          summary="Update script metadata.",
@@ -371,21 +405,34 @@ def delete_script(script_id: uuid.UUID, db: Session = Depends(get_db)):
 @app.post("/v1/like-script/{script_id}/", tags=["👍 Like Script"],
           summary="Like a script.",
           description="This endpoint allows you to like a script by its ID.")
-def like_script(script_id: uuid.UUID, db: Session = Depends(get_db)):
+def like_script(script_id: uuid.UUID, request: Request, db: Session = Depends(get_db)):
     """
     Endpoint to like a script by its ID.
     """
     try:
+        ip_address = request.client.host
+
+        # Check if the IP address has already liked the script
+        ip_like = db.query(IPLikes).filter(IPLikes.ip_address == ip_address, IPLikes.script_id == script_id).first()
+        if ip_like:
+            raise HTTPException(status_code=400, detail="IP address has already liked this script.")
+
+        # Add the like
+        new_like = IPLikes(ip_address=ip_address, script_id=script_id)
+        db.add(new_like)
+
+        # Update the like count
         script_like = db.query(ScriptLikes).filter(ScriptLikes.script_id == script_id).first()
-        if not script_like:
+        if script_like:
+            script_like.like_count += 1
+        else:
             script_like = ScriptLikes(script_id=script_id, like_count=1)
             db.add(script_like)
-        else:
-            script_like.like_count += 1
+
         db.commit()
-        db.refresh(script_like)
         return {"script_id": script_id, "like_count": script_like.like_count}
     except Exception as e:
+        db.rollback()
         logger.error(f"❌ An unexpected error occurred: {e}")
         raise HTTPException(status_code=500, detail=f"An error occurred: {str(e)}")
 
@@ -407,20 +454,82 @@ def get_script_likes(script_id: uuid.UUID, db: Session = Depends(get_db)):
         raise HTTPException(status_code=500, detail=f"An error occurred: {str(e)}")
 
 
-@app.get("/v1/recent-scripts/", tags=["🆕 Recent Scripts"],
-         summary="Get recently uploaded scripts.",
-         description="This endpoint allows you to retrieve the most recently uploaded scripts.")
-def get_recent_scripts(limit: int = 10, db: Session = Depends(get_db)):
+@app.get("/v1/get-script-downvotes/{script_id}/", tags=["👎 Get Script Downvotes"],
+         summary="Get script downvotes.",
+         description="This endpoint allows you to get the number of downvotes for a script by its ID.")
+def get_script_downvotes(script_id: uuid.UUID, db: Session = Depends(get_db)):
     """
-    Endpoint to retrieve the most recently uploaded scripts.
+    Endpoint to get the number of downvotes for a script by its ID.
     """
     try:
-        recent_scripts = db.query(ScriptMetadata).order_by(desc(ScriptMetadata.upload_time)).limit(limit).all()
-        return recent_scripts
+        script_downvote = db.query(ScriptDownvotes).filter(ScriptDownvotes.script_id == script_id).first()
+        if not script_downvote:
+            return {"script_id": script_id, "downvote_count": 0}
+        return {"script_id": script_id, "downvote_count": script_downvote.downvote_count}
     except Exception as e:
         logger.error(f"❌ An unexpected error occurred: {e}")
         raise HTTPException(status_code=500, detail=f"An error occurred: {str(e)}")
 
+
+@app.post("/v1/downvote-script/{script_id}/", tags=["👎 Downvote Script"],
+          summary="Downvote a script.",
+          description="This endpoint allows you to downvote a script by its ID.")
+def downvote_script(script_id: uuid.UUID, request: Request, db: Session = Depends(get_db)):
+    """
+    Endpoint to downvote a script by its ID.
+    """
+    try:
+        ip_address = request.client.host
+
+        # Check if the IP address has already down-voted the script
+        ip_downvote = db.query(IPDownvotes).filter(IPDownvotes.ip_address == ip_address,
+                                                   IPDownvotes.script_id == script_id).first()
+        if ip_downvote:
+            raise HTTPException(status_code=400, detail="IP address has already downvoted this script.")
+
+        # Add the downvote
+        new_downvote = IPDownvotes(ip_address=ip_address, script_id=script_id)
+        db.add(new_downvote)
+
+        # Update the downvote count
+        script_downvote = db.query(ScriptDownvotes).filter(ScriptDownvotes.script_id == script_id).first()
+        if script_downvote:
+            script_downvote.downvote_count += 1
+        else:
+            script_downvote = ScriptDownvotes(script_id=script_id, downvote_count=1)
+            db.add(script_downvote)
+
+        # Check if the script should be deleted
+        if script_downvote.downvote_count >= 100:
+            script = db.query(ScriptMetadata).filter(ScriptMetadata.id == script_id).first()
+            if script:
+                db.delete(script)
+                db.commit()
+                return {"detail": "Script deleted due to reaching 100 downvotes"}
+
+        db.commit()
+        return {"script_id": script_id, "downvote_count": script_downvote.downvote_count}
+    except Exception as e:
+        db.rollback()
+        logger.error(f"❌ An unexpected error occurred: {e}")
+        raise HTTPException(status_code=500, detail=f"An error occurred: {str(e)}")
+
+
+
+@app.get("/v1/recent-scripts/", tags=["🆕 Recent Scripts"],
+         summary="Get recently uploaded scripts.",
+         description="This endpoint allows you to retrieve the most recently uploaded scripts from the last 24 hours.")
+def get_recent_scripts(limit: int = 10, db: Session = Depends(get_db)):
+    """
+    Endpoint to retrieve the most recently uploaded scripts from the last 24 hours.
+    """
+    try:
+        twenty_four_hours_ago = datetime.now(timezone.utc) - timedelta(hours=24)
+        recent_scripts = db.query(ScriptMetadata).filter(ScriptMetadata.upload_time >= twenty_four_hours_ago).order_by(desc(ScriptMetadata.upload_time)).limit(limit).all()
+        return recent_scripts
+    except Exception as e:
+        logger.error(f"❌ An unexpected error occurred: {e}")
+        raise HTTPException(status_code=500, detail=f"An error occurred: {str(e)}")
 
 @app.get("/v1/trending-scripts/", tags=["🔥 Trending Scripts"],
          summary="Get trending scripts.",
@@ -453,22 +562,23 @@ def get_script_by_id(script_id: uuid.UUID, db: Session = Depends(get_db)):
         raise HTTPException(status_code=500, detail=f"An error occurred: {str(e)}")
 
 
-
 @app.get("/v1/analytics/", tags=["📊 Analytics"], response_model=AnalyticsResponse)
 def get_analytics(db: Session = Depends(get_db)):
     """Get analytics and metrics."""
     try:
         total_scripts = db.query(ScriptMetadata).count()
         total_likes = db.query(ScriptLikes).with_entities(func.sum(ScriptLikes.like_count)).scalar() or 0
-        most_liked_script = db.query(ScriptMetadata).join(ScriptLikes, ScriptMetadata.id == ScriptLikes.script_id).order_by(
+        most_liked_script = db.query(ScriptMetadata).join(ScriptLikes,
+                                                          ScriptMetadata.id == ScriptLikes.script_id).order_by(
             desc(ScriptLikes.like_count)).first()
         recent_uploads = db.query(ScriptMetadata).filter(
             ScriptMetadata.upload_time >= datetime.now(timezone.utc) - timedelta(days=7)).count()
-        trending_scripts = db.query(ScriptMetadata).join(ScriptLikes, ScriptMetadata.id == ScriptLikes.script_id).filter(
+        trending_scripts = db.query(ScriptMetadata).join(ScriptLikes,
+                                                         ScriptMetadata.id == ScriptLikes.script_id).filter(
             ScriptLikes.like_count > 100).count()
 
         most_liked_script_instance = None
-        if (most_liked_script):
+        if most_liked_script:
             most_liked_script_instance = ScriptMetadataModel.model_validate(most_liked_script)
 
         return AnalyticsResponse(
@@ -481,6 +591,7 @@ def get_analytics(db: Session = Depends(get_db)):
     except Exception as e:
         logger.error(f"❌ An unexpected error occurred: {e}")
         raise HTTPException(status_code=500, detail=f"An error occurred: {str(e)}")
+
 
 if __name__ == "__main__":
     uvicorn.run(app, host="localhost", port=8000)

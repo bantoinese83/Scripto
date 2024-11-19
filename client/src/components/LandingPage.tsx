@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { motion } from 'framer-motion';
+import { Helmet } from 'react-helmet';
 import { Code, Users, Star, Upload, Brain, BarChart2, Loader2, AlertCircle } from 'lucide-react';
 import { ScriptSections } from './ScriptSections.tsx';
 import { api } from '../api';
@@ -65,14 +66,20 @@ const LandingPage: React.FC = () => {
 
   return (
     <motion.div className="min-h-screen bg-gray-100" initial="hidden" animate="visible">
+      <Helmet>
+        <title>Scripto - Discover and Share Scripts</title>
+        <meta name="description" content="Discover and share your scripts with the developer community. Find the perfect script for your project from our vast collection of user-submitted code snippets." />
+        <meta name="keywords" content="scripts, code sharing, developer community, programming, code snippets" />
+        <meta name="author" content="Scripto" />
+      </Helmet>
       {/* Hero Banner */}
       <header className="bg-gradient-to-r from-indigo-600 to-purple-600 text-white py-24">
         <div className="container mx-auto px-4 text-center">
           <motion.h1 className="text-6xl font-extrabold mb-6" variants={itemVariants}>Welcome to Scripto</motion.h1>
           <motion.p className="text-3xl mb-12" variants={itemVariants}>Discover and share your scripts with the developer community.</motion.p>
           <motion.div variants={itemVariants}>
-<Link to="/app" className="bg-white text-indigo-600 px-12 py-5 rounded-full text-2xl font-semibold hover:bg-indigo-700 hover:text-white">Get Started</Link>
-</motion.div>
+            <Link to="/app" className="bg-white text-indigo-600 px-12 py-5 rounded-full text-2xl font-semibold hover:bg-indigo-700 hover:text-white">Get Started</Link>
+          </motion.div>
         </div>
       </header>
 
