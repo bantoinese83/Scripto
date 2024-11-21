@@ -9,6 +9,7 @@ const RequestScriptList: React.FC = () => {
   const [requests, setRequests] = useState<ScriptRequest[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [wsError, setWsError] = useState<string | null>(null);
 
   const fetchRequests = async () => {
     try {
@@ -29,6 +30,11 @@ const RequestScriptList: React.FC = () => {
 
     const ws = new WebSocket('ws://localhost:8000/ws/notifications/');
 
+    ws.onopen = () => {
+      console.log('WebSocket connection established');
+      setWsError(null);
+    };
+
     ws.onmessage = (event) => {
       const message = event.data;
       console.log('WebSocket message received:', message);
@@ -37,6 +43,16 @@ const RequestScriptList: React.FC = () => {
 
     ws.onerror = (error) => {
       console.error('WebSocket error:', error);
+      setWsError('WebSocket connection error. Please check the server.');
+    };
+
+    ws.onclose = (event) => {
+      if (event.wasClean) {
+        console.log(`WebSocket connection closed cleanly, code=${event.code}, reason=${event.reason}`);
+      } else {
+        console.error('WebSocket connection closed unexpectedly');
+        setWsError('WebSocket connection closed unexpectedly. Please check the server.');
+      }
     };
 
     return () => {
@@ -55,6 +71,12 @@ const RequestScriptList: React.FC = () => {
         <div className="mb-4 p-4 bg-red-50 border border-red-200 rounded-lg flex items-center gap-2 text-red-700">
           <AlertCircle className="w-5 h-5 flex-shrink-0" />
           <p>{error}</p>
+        </div>
+      )}
+      {wsError && (
+        <div className="mb-4 p-4 bg-red-50 border border-red-200 rounded-lg flex items-center gap-2 text-red-700">
+          <AlertCircle className="w-5 h-5 flex-shrink-0" />
+          <p>{wsError}</p>
         </div>
       )}
       {loading ? (

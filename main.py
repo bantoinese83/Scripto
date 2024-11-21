@@ -3,7 +3,9 @@ import os
 import uuid
 from datetime import datetime, timezone, timedelta
 from enum import Enum
+from threading import Lock
 from typing import Optional, List
+from fastapi.responses import JSONResponse
 
 import google.generativeai as genai
 import uvicorn
@@ -14,6 +16,8 @@ from fastapi import WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from google.generativeai import GenerationConfig
 from pydantic import BaseModel, ValidationError
+from pydantic import Field
+from pydantic.v1 import validator
 from sqlalchemy import create_engine, Column, String, Text, Integer, DateTime, desc, func, ForeignKey, Boolean
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.exc import IntegrityError
@@ -66,17 +70,32 @@ Base = declarative_base()
 class ConnectionManager:
     def __init__(self):
         self.active_connections: List[WebSocket] = []
+        self.lock = Lock()
+        self.logger = logging.getLogger("ConnectionManager")
 
     async def connect(self, websocket: WebSocket):
         await websocket.accept()
-        self.active_connections.append(websocket)
+        with self.lock:
+            self.active_connections.append(websocket)
+        self.logger.info(f"WebSocket connected: {websocket.client}")
 
     def disconnect(self, websocket: WebSocket):
-        self.active_connections.remove(websocket)
+        with self.lock:
+            if websocket in self.active_connections:
+                self.active_connections.remove(websocket)
+                self.logger.info(f"WebSocket disconnected: {websocket.client}")
+            else:
+                self.logger.warning(f"Attempted to disconnect a non-existent WebSocket: {websocket.client}")
 
     async def broadcast(self, message: str):
-        for connection in self.active_connections:
-            await connection.send_text(message)
+        with self.lock:
+            connections = list(self.active_connections)
+        for connection in connections:
+            try:
+                await connection.send_text(message)
+            except Exception as e:
+                self.logger.error(f"Error sending message to {connection.client}: {e}")
+                self.disconnect(connection)
 
 
 manager = ConnectionManager()
@@ -90,6 +109,11 @@ async def websocket_endpoint(websocket: WebSocket):
             await websocket.receive_text()
     except WebSocketDisconnect:
         manager.disconnect(websocket)
+    except Exception as e:
+        logging.error(f"Unexpected error: {e}")
+        manager.disconnect(websocket)
+    finally:
+        await websocket.close()
 
 
 class ScriptMetadata(Base):
@@ -161,6 +185,23 @@ class UpdateMetadata(BaseModel):
     category: Optional[str]
 
 
+class ScriptMetadataIn(BaseModel):
+    title: str = Field(..., min_length=3, max_length=100)
+    language: str = Field(..., min_length=2, max_length=50)
+    tags: str = Field(..., min_length=3)  # Comma-separated tags
+    description: str = Field(..., min_length=10)
+    how_it_works: str = Field(..., min_length=10)
+    category: str = Field(..., min_length=3, max_length=50)
+    script_content: str = Field(..., min_length=1)
+
+    @validator('tags')
+    def validate_tags(cls, v):
+        tags = [tag.strip() for tag in v.split(',')]
+        if not tags:
+            raise ValueError("At least one tag is required.")
+        return v
+
+
 class ScriptMetadataModel(BaseModel):
     id: uuid.UUID
     filename: str
@@ -214,7 +255,6 @@ class ScriptRequestModel(BaseModel):
 
     class Config:
         validate_assignment = True
-
 
 
 # Update the REQUIRED_FIELDS list
@@ -276,9 +316,53 @@ def validate_metadata(metadata: dict):
             raise ValueError(f"Failed to generate complete metadata: {field} is missing.")
 
 
+# New Input Script Route without AI
+@app.post("/v1/input-script/", tags=["📤 Input Script"], response_model=ScriptMetadataModel,
+          responses={400: {"model": BaseModel}})
+async def input_script_v1(metadata: ScriptMetadataIn, db: Session = Depends(get_db)):
+    """
+    Input script and metadata (no AI).  This endpoint is more robust and uses best practices
+    for handling user input by using Pydantic's validation features.
+    """
+    try:
+        # Check for duplicate script content before proceeding.
+        existing_script = db.query(ScriptMetadata).filter(
+            ScriptMetadata.script_content == metadata.script_content).first()
+        if existing_script:
+            raise HTTPException(status_code=409, detail="Script content already exists.")
+
+        db_metadata = ScriptMetadata(
+            title=metadata.title,
+            language=metadata.language,
+            tags=metadata.tags,
+            description=metadata.description,
+            how_it_works=metadata.how_it_works,
+            script_content=metadata.script_content,
+            category=metadata.category,
+            filename=f"input_script_{uuid.uuid4()}.txt"  # Generate a filename if not provided.
+        )
+
+        db.add(db_metadata)
+        db.commit()
+        db.refresh(db_metadata)
+        return db_metadata
+
+    except ValidationError as e:
+        logger.error(f"❌ Validation error: {e.errors()}")
+        return JSONResponse(status_code=400, content={"detail": e.errors()})  # Return Pydantic errors.
+    except IntegrityError as e:
+        db.rollback()
+        logger.error(f"❌ Database Integrity Error: {e}")
+        raise HTTPException(status_code=409, detail="Database error. This may indicate a unique constraint violation.")
+    except Exception as e:
+        db.rollback()  # Always rollback on failure.
+        logger.error(f"❌ An unexpected error occurred: {e}")
+        raise HTTPException(status_code=500, detail=f"An unexpected error occurred.")
+
 
 @app.post("/v1/upload-script/", tags=["📤 Upload Script"])
-async def upload_script_v1(file: UploadFile = File(...), request_id: Optional[uuid.UUID] = None, db: Session = Depends(get_db)):
+async def upload_script_v1(file: UploadFile = File(...), request_id: Optional[uuid.UUID] = None,
+                           db: Session = Depends(get_db)):
     try:
         logger.info("🚀 Starting script upload process.")
         script_content = await read_file_content(file)
@@ -329,8 +413,6 @@ async def upload_script_v1(file: UploadFile = File(...), request_id: Optional[uu
     except Exception as e:
         logger.error(f"❌ An unexpected error occurred: {e}")
         raise HTTPException(status_code=500, detail=f"An error occurred: {str(e)}")
-
-
 
 
 @app.get("/v1/search-scripts/", tags=["🔍 Search Scripts"],
@@ -473,6 +555,17 @@ def like_script(script_id: uuid.UUID, request: Request, db: Session = Depends(ge
         if ip_like:
             raise HTTPException(status_code=400, detail="IP address has already liked this script.")
 
+        # Check if the IP address has downvoted the script and remove the downvote
+        ip_downvote = db.query(IPDownvotes).filter(IPDownvotes.ip_address == ip_address,
+                                                   IPDownvotes.script_id == script_id).first()
+        if ip_downvote:
+            db.delete(ip_downvote)
+            script_downvote = db.query(ScriptDownvotes).filter(ScriptDownvotes.script_id == script_id).first()
+            if script_downvote:
+                script_downvote.downvote_count -= 1
+                if script_downvote.downvote_count == 0:
+                    db.delete(script_downvote)
+
         # Add the like
         new_like = IPLikes(ip_address=ip_address, script_id=script_id)
         db.add(new_like)
@@ -487,6 +580,60 @@ def like_script(script_id: uuid.UUID, request: Request, db: Session = Depends(ge
 
         db.commit()
         return {"script_id": script_id, "like_count": script_like.like_count}
+    except Exception as e:
+        db.rollback()
+        logger.error(f"❌ An unexpected error occurred: {e}")
+        raise HTTPException(status_code=500, detail=f"An error occurred: {str(e)}")
+
+
+@app.post("/v1/downvote-script/{script_id}/", tags=["👎 Downvote Script"],
+          summary="Downvote a script.",
+          description="This endpoint allows you to downvote a script by its ID.")
+def downvote_script(script_id: uuid.UUID, request: Request, db: Session = Depends(get_db)):
+    """
+    Endpoint to downvote a script by its ID.
+    """
+    try:
+        ip_address = request.client.host
+
+        # Check if the IP address has already down-voted the script
+        ip_downvote = db.query(IPDownvotes).filter(IPDownvotes.ip_address == ip_address,
+                                                   IPDownvotes.script_id == script_id).first()
+        if ip_downvote:
+            raise HTTPException(status_code=400, detail="IP address has already downvoted this script.")
+
+        # Check if the IP address has liked the script and remove the like
+        ip_like = db.query(IPLikes).filter(IPLikes.ip_address == ip_address, IPLikes.script_id == script_id).first()
+        if ip_like:
+            db.delete(ip_like)
+            script_like = db.query(ScriptLikes).filter(ScriptLikes.script_id == script_id).first()
+            if script_like:
+                script_like.like_count -= 1
+                if script_like.like_count == 0:
+                    db.delete(script_like)
+
+        # Add the downvote
+        new_downvote = IPDownvotes(ip_address=ip_address, script_id=script_id)
+        db.add(new_downvote)
+
+        # Update the downvote count
+        script_downvote = db.query(ScriptDownvotes).filter(ScriptDownvotes.script_id == script_id).first()
+        if script_downvote:
+            script_downvote.downvote_count += 1
+        else:
+            script_downvote = ScriptDownvotes(script_id=script_id, downvote_count=1)
+            db.add(script_downvote)
+
+        # Check if the script should be deleted
+        if script_downvote.downvote_count >= 100:
+            script = db.query(ScriptMetadata).filter(ScriptMetadata.id == script_id).first()
+            if script:
+                db.delete(script)
+                db.commit()
+                return {"detail": "Script deleted due to reaching 100 downvotes"}
+
+        db.commit()
+        return {"script_id": script_id, "downvote_count": script_downvote.downvote_count}
     except Exception as e:
         db.rollback()
         logger.error(f"❌ An unexpected error occurred: {e}")
@@ -527,50 +674,6 @@ def get_script_downvotes(script_id: uuid.UUID, db: Session = Depends(get_db)):
         raise HTTPException(status_code=500, detail=f"An error occurred: {str(e)}")
 
 
-@app.post("/v1/downvote-script/{script_id}/", tags=["👎 Downvote Script"],
-          summary="Downvote a script.",
-          description="This endpoint allows you to downvote a script by its ID.")
-def downvote_script(script_id: uuid.UUID, request: Request, db: Session = Depends(get_db)):
-    """
-    Endpoint to downvote a script by its ID.
-    """
-    try:
-        ip_address = request.client.host
-
-        # Check if the IP address has already down-voted the script
-        ip_downvote = db.query(IPDownvotes).filter(IPDownvotes.ip_address == ip_address,
-                                                   IPDownvotes.script_id == script_id).first()
-        if ip_downvote:
-            raise HTTPException(status_code=400, detail="IP address has already downvoted this script.")
-
-        # Add the downvote
-        new_downvote = IPDownvotes(ip_address=ip_address, script_id=script_id)
-        db.add(new_downvote)
-
-        # Update the downvote count
-        script_downvote = db.query(ScriptDownvotes).filter(ScriptDownvotes.script_id == script_id).first()
-        if script_downvote:
-            script_downvote.downvote_count += 1
-        else:
-            script_downvote = ScriptDownvotes(script_id=script_id, downvote_count=1)
-            db.add(script_downvote)
-
-        # Check if the script should be deleted
-        if script_downvote.downvote_count >= 100:
-            script = db.query(ScriptMetadata).filter(ScriptMetadata.id == script_id).first()
-            if script:
-                db.delete(script)
-                db.commit()
-                return {"detail": "Script deleted due to reaching 100 downvotes"}
-
-        db.commit()
-        return {"script_id": script_id, "downvote_count": script_downvote.downvote_count}
-    except Exception as e:
-        db.rollback()
-        logger.error(f"❌ An unexpected error occurred: {e}")
-        raise HTTPException(status_code=500, detail=f"An error occurred: {str(e)}")
-
-
 @app.get("/v1/recent-scripts/", tags=["🆕 Recent Scripts"],
          summary="Get recently uploaded scripts.",
          description="This endpoint allows you to retrieve the most recently uploaded scripts from the last 24 hours.")
@@ -579,7 +682,7 @@ def get_recent_scripts(limit: int = 10, db: Session = Depends(get_db)):
     Endpoint to retrieve the most recently uploaded scripts from the last 24 hours.
     """
     try:
-        twenty_four_hours_ago = datetime.now(timezone.utc) - timedelta(hours=24)
+        twenty_four_hours_ago = datetime.now(timezone.utc) - timedelta(hours=2)
         recent_scripts = db.query(ScriptMetadata).filter(ScriptMetadata.upload_time >= twenty_four_hours_ago).order_by(
             desc(ScriptMetadata.upload_time)).limit(limit).all()
         return recent_scripts
@@ -629,7 +732,7 @@ def get_analytics(db: Session = Depends(get_db)):
                                                           ScriptMetadata.id == ScriptLikes.script_id).order_by(
             desc(ScriptLikes.like_count)).first()
         recent_uploads = db.query(ScriptMetadata).filter(
-            ScriptMetadata.upload_time >= datetime.now(timezone.utc) - timedelta(days=7)).count()
+            ScriptMetadata.upload_time >= datetime.now(timezone.utc) - timedelta(hours=1)).count()
         trending_scripts = db.query(ScriptMetadata).join(ScriptLikes,
                                                          ScriptMetadata.id == ScriptLikes.script_id).filter(
             ScriptLikes.like_count > 100).count()

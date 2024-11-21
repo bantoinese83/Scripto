@@ -5,6 +5,7 @@ import { ScriptMetadata } from '../types';
 import { toast } from 'react-toastify';
 import Confetti from 'react-confetti';
 import ScriptDetailsModal from './ScriptDetailsModal';
+import InputScriptForm from './InputScriptForm';
 
 interface Props {
   onUploadSuccess: (newScript: ScriptMetadata) => void;
@@ -76,6 +77,13 @@ export const UploadForm: React.FC<Props> = ({ onUploadSuccess }) => {
     }
   };
 
+  const handleInputSuccess = (newScript: ScriptMetadata) => {
+    onUploadSuccess(newScript);
+    setUploadedScript(newScript);
+    setShowConfetti(true);
+    setIsModalOpen(true);
+  };
+
   const handleCopy = (e: React.MouseEvent) => {
     if (uploadedScript) {
       navigator.clipboard.writeText(uploadedScript.script_content);
@@ -132,6 +140,8 @@ export const UploadForm: React.FC<Props> = ({ onUploadSuccess }) => {
           </button>
         </div>
       </div>
+      <div className="text-center my-4">or</div>
+      <InputScriptForm onInputSuccess={handleInputSuccess} />
       {isUploading && (
         <div className="mt-4 flex justify-center items-center py-4">
           <Loader2 className="w-8 h-8 text-indigo-600 animate-spin" />

@@ -6,7 +6,6 @@ import { Code, Users, Star, Upload, Brain, BarChart2, Loader2, AlertCircle } fro
 import { ScriptSections } from './ScriptSections.tsx';
 import { api } from '../api';
 import { AnalyticsResponse } from '../types';
-import RequestScriptForm  from './RequestScriptForm.tsx';
 import RequestScriptList from './RequestScriptList.tsx';
 
 const containerVariants = {
