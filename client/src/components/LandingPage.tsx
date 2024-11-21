@@ -6,6 +6,8 @@ import { Code, Users, Star, Upload, Brain, BarChart2, Loader2, AlertCircle } fro
 import { ScriptSections } from './ScriptSections.tsx';
 import { api } from '../api';
 import { AnalyticsResponse } from '../types';
+import RequestScriptForm  from './RequestScriptForm.tsx';
+import RequestScriptList from './RequestScriptList.tsx';
 
 const containerVariants = {
   hidden: { opacity: 0 },
@@ -131,6 +133,11 @@ const LandingPage: React.FC = () => {
       </div>
   )}
 </motion.section>
+        <motion.section className="mt-16" variants={containerVariants}>
+          <motion.h3 className="text-4xl font-extrabold mb-8" variants={itemVariants}>Script Requests</motion.h3>
+          <RequestScriptList />
+        </motion.section>
+
         <motion.section className="mt-16" variants={containerVariants}>
           <motion.h3 className="text-4xl font-extrabold mb-8" variants={itemVariants}>Stay Updated</motion.h3>
           <div className="p-6 bg-white rounded-lg shadow-md">

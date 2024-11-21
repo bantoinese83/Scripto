@@ -1,20 +1,22 @@
 import logging
 import os
 import uuid
-from enum import Enum
-from typing import Optional
-from fastapi import Request
 from datetime import datetime, timezone, timedelta
+from enum import Enum
+from typing import Optional, List
 
 import google.generativeai as genai
 import uvicorn
 from fastapi import FastAPI, File, UploadFile, HTTPException, Depends
 from fastapi import Query
+from fastapi import Request
+from fastapi import WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from google.generativeai import GenerationConfig
-from pydantic import BaseModel
-from sqlalchemy import create_engine, Column, String, Text, Integer, DateTime, desc, func, ForeignKey
+from pydantic import BaseModel, ValidationError
+from sqlalchemy import create_engine, Column, String, Text, Integer, DateTime, desc, func, ForeignKey, Boolean
 from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker, Session
 from tqdm import tqdm
@@ -61,6 +63,35 @@ SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 Base = declarative_base()
 
 
+class ConnectionManager:
+    def __init__(self):
+        self.active_connections: List[WebSocket] = []
+
+    async def connect(self, websocket: WebSocket):
+        await websocket.accept()
+        self.active_connections.append(websocket)
+
+    def disconnect(self, websocket: WebSocket):
+        self.active_connections.remove(websocket)
+
+    async def broadcast(self, message: str):
+        for connection in self.active_connections:
+            await connection.send_text(message)
+
+
+manager = ConnectionManager()
+
+
+@app.websocket("/ws/notifications/")
+async def websocket_endpoint(websocket: WebSocket):
+    await manager.connect(websocket)
+    try:
+        while True:
+            await websocket.receive_text()
+    except WebSocketDisconnect:
+        manager.disconnect(websocket)
+
+
 class ScriptMetadata(Base):
     __tablename__ = "script_metadata"
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4, index=True)
@@ -104,6 +135,17 @@ class ScriptDownvotes(Base):
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4, index=True)
     script_id = Column(UUID(as_uuid=True), index=True)
     downvote_count = Column(Integer, default=0)
+
+
+class ScriptRequest(Base):
+    __tablename__ = "script_requests"
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4, index=True)
+    title = Column(String, index=True)
+    description = Column(Text)
+    language = Column(String)
+    tags = Column(String)
+    is_fulfilled = Column(Boolean, default=False)
+    request_time = Column(DateTime, default=lambda: datetime.now(timezone.utc))
 
 
 # Create the database tables
@@ -162,6 +204,17 @@ class MetadataKeys(Enum):
     DESCRIPTION = "Description"
     HOW_IT_WORKS = "How it works"
     CATEGORY = "Category"
+
+
+class ScriptRequestModel(BaseModel):
+    title: str
+    description: str
+    language: Optional[str] = None
+    tags: Optional[str] = None
+
+    class Config:
+        validate_assignment = True
+
 
 
 # Update the REQUIRED_FIELDS list
@@ -223,13 +276,9 @@ def validate_metadata(metadata: dict):
             raise ValueError(f"Failed to generate complete metadata: {field} is missing.")
 
 
-@app.post("/v1/upload-script/", tags=["📤 Upload Script"],
-          summary="Upload a script and generate metadata using Google Gemini.",
-          description="This endpoint allows you to upload a script file and generate metadata using Google Gemini.")
-async def upload_script_v1(file: UploadFile = File(...), db: Session = Depends(get_db)):
-    """
-    Endpoint to upload a script and generate metadata using Google Gemini.
-    """
+
+@app.post("/v1/upload-script/", tags=["📤 Upload Script"])
+async def upload_script_v1(file: UploadFile = File(...), request_id: Optional[uuid.UUID] = None, db: Session = Depends(get_db)):
     try:
         logger.info("🚀 Starting script upload process.")
         script_content = await read_file_content(file)
@@ -237,9 +286,8 @@ async def upload_script_v1(file: UploadFile = File(...), db: Session = Depends(g
         chat_session = model.start_chat(history=[])
         prompt = generate_prompt(script_content, file_extension)
 
-        # Use tqdm for progress feedback
         with tqdm(total=100, desc="Generating metadata", bar_format="{l_bar}{bar} [ time left: {remaining} ]") as pbar:
-            for attempt in range(3):  # Retry up to 3 times
+            for attempt in range(3):
                 response = chat_session.send_message(prompt)
                 pbar.update(50)
                 metadata = extract_metadata(response.text)
@@ -248,7 +296,6 @@ async def upload_script_v1(file: UploadFile = File(...), db: Session = Depends(g
                     pbar.update(50)
                     logger.info("🎉 Script metadata generated successfully.")
 
-                    # Store metadata and script content in the database
                     db_metadata = ScriptMetadata(
                         filename=file.filename,
                         title=metadata[MetadataKeys.TITLE.value],
@@ -263,21 +310,27 @@ async def upload_script_v1(file: UploadFile = File(...), db: Session = Depends(g
                     db.commit()
                     db.refresh(db_metadata)
 
+                    if request_id:
+                        await fulfill_script_request(request_id, db)
+
                     return {"id": str(db_metadata.id), "filename": file.filename, **metadata}
                 except ValueError as e:
                     logger.warning(f"⚠️ Attempt {attempt + 1}: {e}")
                     if attempt == 2:
                         raise e
 
-    except ValueError as e:
-        logger.error(f"❌ Metadata validation error: {e}")
+    except (ValueError, ValidationError) as e:
+        logger.error(f"❌ Validation error: {e}")
         raise HTTPException(status_code=400, detail=str(e))
-    except HTTPException as e:
-        logger.error(f"❌ HTTPException: {e.detail}")
-        raise e
+    except IntegrityError as e:
+        db.rollback()
+        logger.error(f"❌ Database Integrity Error: {e}")
+        raise HTTPException(status_code=409, detail="Script content already exists.")
     except Exception as e:
         logger.error(f"❌ An unexpected error occurred: {e}")
         raise HTTPException(status_code=500, detail=f"An error occurred: {str(e)}")
+
+
 
 
 @app.get("/v1/search-scripts/", tags=["🔍 Search Scripts"],
@@ -329,7 +382,9 @@ def get_all_scripts(db: Session = Depends(get_db)):
         logger.error(f"❌ An unexpected error occurred: {e}")
         raise HTTPException(status_code=500, detail=f"An error occurred: {str(e)}")
 
-@app.get("/v1/get-all-tags/", tags=["🏷️ Get All Tags"], summary="Get all unique tags", description="This endpoint allows you to retrieve all unique tags from the scripts.")
+
+@app.get("/v1/get-all-tags/", tags=["🏷️ Get All Tags"], summary="Get all unique tags",
+         description="This endpoint allows you to retrieve all unique tags from the scripts.")
 def get_all_tags(db: Session = Depends(get_db)):
     """
     Endpoint to retrieve all unique tags from the scripts.
@@ -344,6 +399,7 @@ def get_all_tags(db: Session = Depends(get_db)):
     except Exception as e:
         logger.error(f"❌ An unexpected error occurred: {e}")
         raise HTTPException(status_code=500, detail=f"An error occurred: {str(e)}")
+
 
 @app.put("/v1/update-script/{script_id}/", tags=["🔄 Update Script"],
          summary="Update script metadata.",
@@ -515,7 +571,6 @@ def downvote_script(script_id: uuid.UUID, request: Request, db: Session = Depend
         raise HTTPException(status_code=500, detail=f"An error occurred: {str(e)}")
 
 
-
 @app.get("/v1/recent-scripts/", tags=["🆕 Recent Scripts"],
          summary="Get recently uploaded scripts.",
          description="This endpoint allows you to retrieve the most recently uploaded scripts from the last 24 hours.")
@@ -525,11 +580,13 @@ def get_recent_scripts(limit: int = 10, db: Session = Depends(get_db)):
     """
     try:
         twenty_four_hours_ago = datetime.now(timezone.utc) - timedelta(hours=24)
-        recent_scripts = db.query(ScriptMetadata).filter(ScriptMetadata.upload_time >= twenty_four_hours_ago).order_by(desc(ScriptMetadata.upload_time)).limit(limit).all()
+        recent_scripts = db.query(ScriptMetadata).filter(ScriptMetadata.upload_time >= twenty_four_hours_ago).order_by(
+            desc(ScriptMetadata.upload_time)).limit(limit).all()
         return recent_scripts
     except Exception as e:
         logger.error(f"❌ An unexpected error occurred: {e}")
         raise HTTPException(status_code=500, detail=f"An error occurred: {str(e)}")
+
 
 @app.get("/v1/trending-scripts/", tags=["🔥 Trending Scripts"],
          summary="Get trending scripts.",
@@ -591,6 +648,41 @@ def get_analytics(db: Session = Depends(get_db)):
     except Exception as e:
         logger.error(f"❌ An unexpected error occurred: {e}")
         raise HTTPException(status_code=500, detail=f"An error occurred: {str(e)}")
+
+
+@app.post("/v1/request-script/", tags=["📤 Request Script"],
+          summary="Request a new script.",
+          description="This endpoint allows users to request a new script.")
+async def request_script(request: ScriptRequestModel, db: Session = Depends(get_db)):
+    new_request = ScriptRequest(
+        title=request.title,
+        description=request.description,
+        language=request.language,
+        tags=request.tags
+    )
+    db.add(new_request)
+    db.commit()
+    db.refresh(new_request)
+    return new_request
+
+
+@app.get("/v1/get-script-requests/", tags=["📜 Get Script Requests"],
+         summary="Get all script requests.",
+         description="This endpoint allows you to retrieve all script requests.")
+def get_script_requests(db: Session = Depends(get_db)):
+    return db.query(ScriptRequest).all()
+
+
+@app.put("/v1/fulfill-script-request/{request_id}/", tags=["🔄 Fulfill Script Request"])
+async def fulfill_script_request(request_id: uuid.UUID, db: Session = Depends(get_db)):
+    script_request = db.query(ScriptRequest).filter(ScriptRequest.id == request_id).first()
+    if not script_request:
+        raise HTTPException(status_code=404, detail="Script request not found")
+    script_request.is_fulfilled = True
+    db.commit()
+    db.refresh(script_request)
+    await manager.broadcast(f"Script request '{script_request.title}' has been fulfilled!")
+    return {"message": f"Script request '{script_request.title}' fulfilled successfully."}
 
 
 if __name__ == "__main__":

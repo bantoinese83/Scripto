@@ -1,5 +1,5 @@
 import axios, { AxiosError } from 'axios';
-import { AnalyticsResponse, ScriptMetadata } from './types';
+import {AnalyticsResponse, ScriptMetadata, ScriptRequest} from './types';
 
 const API_BASE_URL = 'http://localhost:8000/v1';
 
@@ -141,5 +141,34 @@ export const api = {
             handleError(error);
             throw error;
         }
+    },
+
+    requestScript: async (title: string, description: string, language?: string, tags?: string): Promise<ScriptMetadata> => {
+        try {
+            const response = await axios.post<ScriptMetadata>(`${API_BASE_URL}/request-script/`, { title, description, language, tags });
+            return response.data;
+        } catch (error) {
+            handleError(error);
+            throw error;
+        }
+    },
+  getScriptRequests: async (): Promise<ScriptRequest[]> => {
+    try {
+      const response = await axios.get<ScriptRequest[]>(`${API_BASE_URL}/get-script-requests/`);
+      return response.data;
+    } catch (error) {
+      handleError(error);
+      throw error;
     }
+  },
+
+    fulfillScriptRequest: async (requestId: string): Promise<{ message: string }> => {
+        try {
+            const response = await axios.put<{ message: string }>(`${API_BASE_URL}/fulfill-script-request/${requestId}/`);
+            return response.data;
+        } catch (error) {
+            handleError(error);
+            throw error;
+        }
+    },
 };

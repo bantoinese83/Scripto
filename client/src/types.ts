@@ -17,3 +17,12 @@ export interface AnalyticsResponse {
     recent_uploads: number;
     trending_scripts: number;
 }
+
+export interface ScriptRequest {
+  id: string;
+  title: string;
+  description: string;
+  language: string;
+  tags: string;
+  is_fulfilled: boolean;
+}
