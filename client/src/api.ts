@@ -1,5 +1,5 @@
-import axios, {AxiosError} from 'axios';
-import {AnalyticsResponse, ScriptMetadata, ScriptRequest} from './types';
+import axios, { AxiosError } from 'axios';
+import { AnalyticsResponse, ScriptMetadata, ScriptRequest } from './types';
 
 const API_BASE_URL = 'http://localhost:8000/v1';
 
@@ -48,7 +48,7 @@ export const api = {
         category?: string;
     }): Promise<ScriptMetadata[]> => {
         try {
-            const response = await axios.get<ScriptMetadata[]>(`${API_BASE_URL}/search-scripts/`, {params});
+            const response = await axios.get<ScriptMetadata[]>(`${API_BASE_URL}/search-scripts/`, { params });
             return response.data;
         } catch (error) {
             handleError(error);
@@ -60,8 +60,21 @@ export const api = {
         try {
             const response = await axios.post<{
                 script_id: string;
-                like_count: number
+                like_count: number;
             }>(`${API_BASE_URL}/like-script/${id}/`);
+            return response.data;
+        } catch (error) {
+            handleError(error);
+            throw error;
+        }
+    },
+
+    undoLikeScript: async (id: string): Promise<{ script_id: string; like_count: number }> => {
+        try {
+            const response = await axios.post<{
+                script_id: string;
+                like_count: number;
+            }>(`${API_BASE_URL}/undo-like-script/${id}/`);
             return response.data;
         } catch (error) {
             handleError(error);
@@ -73,7 +86,7 @@ export const api = {
         try {
             const response = await axios.get<{
                 script_id: string;
-                like_count: number
+                like_count: number;
             }>(`${API_BASE_URL}/get-script-likes/${id}/`);
             return response.data;
         } catch (error) {
@@ -84,7 +97,7 @@ export const api = {
 
     getTrendingScripts: async (limit: number = 10): Promise<ScriptMetadata[]> => {
         try {
-            const response = await axios.get<ScriptMetadata[]>(`${API_BASE_URL}/trending-scripts/`, {params: {limit}});
+            const response = await axios.get<ScriptMetadata[]>(`${API_BASE_URL}/trending-scripts/`, { params: { limit } });
             return response.data;
         } catch (error) {
             handleError(error);
@@ -94,7 +107,7 @@ export const api = {
 
     getRecentScripts: async (limit: number = 10): Promise<ScriptMetadata[]> => {
         try {
-            const response = await axios.get<ScriptMetadata[]>(`${API_BASE_URL}/recent-scripts/`, {params: {limit}});
+            const response = await axios.get<ScriptMetadata[]>(`${API_BASE_URL}/recent-scripts/`, { params: { limit } });
             return response.data;
         } catch (error) {
             handleError(error);
@@ -126,8 +139,21 @@ export const api = {
         try {
             const response = await axios.post<{
                 script_id: string;
-                downvote_count: number
+                downvote_count: number;
             }>(`${API_BASE_URL}/downvote-script/${id}/`);
+            return response.data;
+        } catch (error) {
+            handleError(error);
+            throw error;
+        }
+    },
+
+    undoDownvoteScript: async (id: string): Promise<{ script_id: string; downvote_count: number }> => {
+        try {
+            const response = await axios.post<{
+                script_id: string;
+                downvote_count: number;
+            }>(`${API_BASE_URL}/undo-downvote-script/${id}/`);
             return response.data;
         } catch (error) {
             handleError(error);
@@ -139,7 +165,7 @@ export const api = {
         try {
             const response = await axios.get<{
                 script_id: string;
-                downvote_count: number
+                downvote_count: number;
             }>(`${API_BASE_URL}/get-script-downvotes/${id}/`);
             return response.data;
         } catch (error) {
@@ -164,7 +190,7 @@ export const api = {
                 title,
                 description,
                 language,
-                tags
+                tags,
             });
             return response.data;
         } catch (error) {
@@ -172,6 +198,7 @@ export const api = {
             throw error;
         }
     },
+
     getScriptRequests: async (): Promise<ScriptRequest[]> => {
         try {
             const response = await axios.get<ScriptRequest[]>(`${API_BASE_URL}/get-script-requests/`);
@@ -185,7 +212,7 @@ export const api = {
     fulfillScriptRequest: async (requestId: string): Promise<{ message: string }> => {
         try {
             const response = await axios.put<{
-                message: string
+                message: string;
             }>(`${API_BASE_URL}/fulfill-script-request/${requestId}/`);
             return response.data;
         } catch (error) {
@@ -193,7 +220,8 @@ export const api = {
             throw error;
         }
     },
-   inputScript: async (script: {
+
+    inputScript: async (script: {
         how_it_works: string;
         script_content: string;
         description: string;
@@ -205,8 +233,8 @@ export const api = {
         try {
             const response = await axios.post<ScriptMetadata>(`${API_BASE_URL}/input-script/`, script, {
                 headers: {
-                    'Content-Type': 'application/json'
-                }
+                    'Content-Type': 'application/json',
+                },
             });
             return response.data;
         } catch (error) {

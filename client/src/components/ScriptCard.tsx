@@ -20,6 +20,8 @@ export const ScriptCard: React.FC<Props> = ({ script, loading }) => {
   const [deployMessage, setDeployMessage] = useState<string | null>(null);
   const [isDeploying, setIsDeploying] = useState(false);
   const [isRejecting, setIsRejecting] = useState(false);
+  const [hasDeployed, setHasDeployed] = useState(false);
+  const [hasRejected, setHasRejected] = useState(false);
 
   useEffect(() => {
     const fetchDeploys = async () => {
@@ -28,6 +30,7 @@ export const ScriptCard: React.FC<Props> = ({ script, loading }) => {
           const response = await api.getScriptLikes(script.id);
           setDeployCount(response.like_count);
           setDeployMessage(null);
+          setHasDeployed(response.like_count > 0);
         } catch (error) {
           console.error('Error fetching deploys:', error);
         }
@@ -39,6 +42,7 @@ export const ScriptCard: React.FC<Props> = ({ script, loading }) => {
         try {
           const response = await api.getScriptDownvotes(script.id);
           setRejectCount(response.downvote_count);
+          setHasRejected(response.downvote_count > 0);
         } catch (error) {
           console.error('Error fetching rejects:', error);
         }
@@ -53,10 +57,20 @@ export const ScriptCard: React.FC<Props> = ({ script, loading }) => {
     if (script.id) {
       try {
         setIsDeploying(true);
-        const response = await api.likeScript(script.id);
-        setDeployCount(response.like_count);
-        setRejectCount((prev) => (prev !== null && prev > 0 ? prev - 1 : prev)); // Decrease reject count if it exists and is greater than 0
-        toast.success('Script deployed!');
+        if (hasDeployed) {
+          // Undo deploy
+          const response = await api.undoLikeScript(script.id);
+          setDeployCount(response.like_count);
+          setHasDeployed(false);
+          toast.success('Script deploy undone!');
+        } else {
+          // Deploy script
+          const response = await api.likeScript(script.id);
+          setDeployCount(response.like_count);
+          setHasDeployed(true);
+          setRejectCount((prev) => (prev !== null && prev > 0 ? prev - 1 : prev)); // Decrease reject count if it exists and is greater than 0
+          toast.success('Script deployed!');
+        }
       } catch (error: any) {
         console.error('Error deploying script:', error);
         toast.error(error.message || 'Failed to deploy script.');
@@ -70,10 +84,20 @@ export const ScriptCard: React.FC<Props> = ({ script, loading }) => {
     if (script.id) {
       try {
         setIsRejecting(true);
-        const response = await api.downvoteScript(script.id);
-        setRejectCount(response.downvote_count);
-        setDeployCount((prev) => (prev !== null && prev > 0 ? prev - 1 : prev)); // Decrease deploy count if it exists and is greater than 0
-        toast.success('Script rejected!');
+        if (hasRejected) {
+          // Undo reject
+          const response = await api.undoDownvoteScript(script.id);
+          setRejectCount(response.downvote_count);
+          setHasRejected(false);
+          toast.success('Script reject undone!');
+        } else {
+          // Reject script
+          const response = await api.downvoteScript(script.id);
+          setRejectCount(response.downvote_count);
+          setHasRejected(true);
+          setDeployCount((prev) => (prev !== null && prev > 0 ? prev - 1 : prev)); // Decrease deploy count if it exists and is greater than 0
+          toast.success('Script rejected!');
+        }
       } catch (error: any) {
         console.error('Error rejecting script:', error);
         if (error.message.includes('IP address has already rejected this script')) {

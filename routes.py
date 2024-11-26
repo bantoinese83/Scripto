@@ -409,3 +409,53 @@ async def fulfill_script_request(request_id: uuid.UUID, db: Session = Depends(ge
     db.refresh(script_request)
     await manager.broadcast(f"Script request '{script_request.title}' has been fulfilled!")
     return {"message": f"Script request '{script_request.title}' fulfilled successfully."}
+
+
+@router.post("/v1/undo-like-script/{script_id}/", tags=["👍 Undo Like Script"])
+def undo_like_script(script_id: uuid.UUID, request: Request, db: Session = Depends(get_db)):
+    try:
+        ip_address = request.client.host
+
+        ip_like = db.query(IPLikes).filter(IPLikes.ip_address == ip_address, IPLikes.script_id == script_id).first()
+        if not ip_like:
+            raise HTTPException(status_code=400, detail="IP address has not liked this script.")
+
+        db.delete(ip_like)
+        script_like = db.query(ScriptLikes).filter(ScriptLikes.script_id == script_id).first()
+        if script_like:
+            script_like.like_count -= 1
+            if script_like.like_count == 0:
+                db.delete(script_like)
+
+        db.commit()
+        return {"script_id": script_id, "like_count": script_like.like_count if script_like else 0}
+    except Exception as e:
+        db.rollback()
+        init_logger().error(f"❌ An unexpected error occurred: {e}")
+        raise HTTPException(status_code=500, detail=f"An error occurred: {str(e)}")
+
+
+@router.post("/v1/undo-downvote-script/{script_id}/", tags=["👎 Undo Downvote Script"])
+def undo_downvote_script(script_id: uuid.UUID, request: Request, db: Session = Depends(get_db)):
+    try:
+        ip_address = request.client.host
+
+        ip_downvote = db.query(IPDownvotes).filter(IPDownvotes.ip_address == ip_address, IPDownvotes.script_id == script_id).first()
+        if not ip_downvote:
+            raise HTTPException(status_code=400, detail="IP address has not downvoted this script.")
+
+        db.delete(ip_downvote)
+        script_downvote = db.query(ScriptDownvotes).filter(ScriptDownvotes.script_id == script_id).first()
+        if script_downvote:
+            script_downvote.downvote_count -= 1
+            if script_downvote.downvote_count == 0:
+                db.delete(script_downvote)
+
+        db.commit()
+        return {"script_id": script_id, "downvote_count": script_downvote.downvote_count if script_downvote else 0}
+    except Exception as e:
+        db.rollback()
+        init_logger().error(f"❌ An unexpected error occurred: {e}")
+        raise HTTPException(status_code=500, detail=f"An error occurred: {str(e)}")
+
+
