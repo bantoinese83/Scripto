@@ -26,3 +26,7 @@ export interface ScriptRequest {
   tags: string;
   is_fulfilled: boolean;
 }
+
+export interface ErrorDetail {
+    msg: string;
+}

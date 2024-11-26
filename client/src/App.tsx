@@ -57,17 +57,17 @@ export default function App() {
         <Router>
             <div className="min-h-screen bg-gray-100">
                 <Helmet>
-                    <title>Scripto - Discover and Share Scripts</title>
+                    <title>CLUBDEV - Discover and Share Scripts</title>
                     <meta name="description" content="Discover and share your scripts with the developer community. Find the perfect script for your project from our vast collection of user-submitted code snippets." />
                     <meta name="keywords" content="scripts, code sharing, developer community, programming, code snippets" />
-                    <meta name="author" content="Scripto" />
+                    <meta name="author" content="CLUBDEV" />
                 </Helmet>
                 <header className="bg-white shadow-sm sticky top-0 z-10">
                     <nav className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
                         <div className="flex items-center justify-between">
                             <Link to="/" className="flex items-center space-x-3">
                                 <Code className="w-8 h-8 text-indigo-600" />
-                                <span className="text-2xl font-bold text-gray-900">Scripto</span>
+                                <span className="text-2xl font-bold text-gray-900">CLUBDEV</span>
                             </Link>
                             <div className="flex space-x-4">
                                 <Link
@@ -127,7 +127,7 @@ export default function App() {
 
                 <footer className="bg-white border-t mt-12">
                     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
-                        <p className="text-center text-gray-500">&copy; 2025 Scripto. All rights reserved.</p>
+                        <p className="text-center text-gray-500">&copy; 2025 CLUBDEV. All rights reserved.</p>
                     </div>
                 </footer>
             </div>
