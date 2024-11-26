@@ -205,7 +205,7 @@ export const api = {
         try {
             const response = await axios.post<ScriptMetadata>(`${API_BASE_URL}/input-script/`, script, {
                 headers: {
-                    'Content-Type': 'application/json' // Crucial change here
+                    'Content-Type': 'application/json'
                 }
             });
             return response.data;
