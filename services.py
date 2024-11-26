@@ -3,6 +3,7 @@ from fastapi import UploadFile, HTTPException
 from app_config import MetadataKeys, init_logger
 
 
+
 async def read_file_content(file: UploadFile) -> str:
     try:
         content = await file.read()

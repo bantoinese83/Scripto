@@ -6,6 +6,7 @@ from fastapi import WebSocket, WebSocketDisconnect, APIRouter
 
 websocket_router = APIRouter()
 
+
 # --- WebSocket Manager ---
 class ConnectionManager:
     def __init__(self):

@@ -25,10 +25,11 @@ router = APIRouter()
 async def input_script_v1(metadata: ScriptMetadataIn, db: Session = Depends(get_db)):
     try:
         existing_script = db.query(ScriptMetadata).filter(
-            ScriptMetadata.script_content == metadata.script_content).first()
+            ScriptMetadata.script_content_hash == ScriptMetadata.compute_hash(metadata.script_content)).first()
         if existing_script:
             raise HTTPException(status_code=409, detail="Script content already exists.")
 
+        script_content_hash = ScriptMetadata.compute_hash(metadata.script_content)
         db_metadata = ScriptMetadata(
             title=metadata.title,
             language=metadata.language,
@@ -36,6 +37,7 @@ async def input_script_v1(metadata: ScriptMetadataIn, db: Session = Depends(get_
             description=metadata.description,
             how_it_works=metadata.how_it_works,
             script_content=metadata.script_content,
+            script_content_hash=script_content_hash,
             category=metadata.category,
             filename=f"input_script_{uuid.uuid4()}.txt"
         )
@@ -78,6 +80,7 @@ async def upload_script_v1(file: UploadFile = File(...), request_id: Optional[uu
                     pbar.update(50)
                     init_logger().info("🎉 Script metadata generated successfully.")
 
+                    script_content_hash = ScriptMetadata.compute_hash(script_content)
                     db_metadata = ScriptMetadata(
                         filename=file.filename,
                         title=metadata[MetadataKeys.TITLE.value],
@@ -86,6 +89,7 @@ async def upload_script_v1(file: UploadFile = File(...), request_id: Optional[uu
                         description=metadata[MetadataKeys.DESCRIPTION.value],
                         how_it_works=metadata[MetadataKeys.HOW_IT_WORKS.value],
                         script_content=script_content,
+                        script_content_hash=script_content_hash,
                         category=metadata[MetadataKeys.CATEGORY.value]
                     )
                     db.add(db_metadata)

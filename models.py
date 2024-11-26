@@ -1,7 +1,8 @@
+import hashlib
 import uuid
 from datetime import datetime, timezone
 
-from sqlalchemy import Column, String, Text, Integer, DateTime, ForeignKey, Boolean
+from sqlalchemy import Column, String, Text, Integer, DateTime, ForeignKey, Boolean, Index
 from sqlalchemy.dialects.postgresql import UUID
 
 from db_config import Base
@@ -17,12 +18,21 @@ class ScriptMetadata(Base):
     tags = Column(String)
     description = Column(Text)
     how_it_works = Column(Text)
-    script_content = Column(Text, unique=True)
+    script_content = Column(Text)
+    script_content_hash = Column(String, index=True)
     category = Column(String)
     upload_time = Column(DateTime, default=lambda: datetime.now(timezone.utc))
 
+    __table_args__ = (
+        Index('ix_script_content_hash', 'script_content_hash'),
+    )
+
     def __repr__(self):
         return f"<ScriptMetadata id={self.id} title={self.title}>"
+
+    @staticmethod
+    def compute_hash(content: str) -> str:
+        return hashlib.md5(content.encode('utf-8')).hexdigest()
 
 
 class ScriptLikes(Base):
@@ -62,4 +72,3 @@ class ScriptRequest(Base):
     tags = Column(String)
     is_fulfilled = Column(Boolean, default=False)
     request_time = Column(DateTime, default=lambda: datetime.now(timezone.utc))
-
