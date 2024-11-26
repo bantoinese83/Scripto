@@ -20,8 +20,6 @@ from websockets_routes import manager
 router = APIRouter()
 
 
-
-
 @router.post("/v1/input-script/", tags=["📤 Input Script"], response_model=ScriptMetadataModel,
              responses={400: {"model": BaseModel}})
 async def input_script_v1(metadata: ScriptMetadataIn, db: Session = Depends(get_db)):
