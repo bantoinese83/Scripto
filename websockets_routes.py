@@ -2,7 +2,7 @@ import logging
 from threading import Lock
 from typing import List
 
-from fastapi import WebSocket, WebSocketDisconnect, APIRouter
+from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
 websocket_router = APIRouter()
 

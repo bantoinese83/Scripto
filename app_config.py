@@ -6,6 +6,7 @@ import google.generativeai as genai
 from fastapi import FastAPI
 from google.generativeai import GenerationConfig
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.middleware.gzip import GZipMiddleware
 
 DATABASE_URL = "postgresql://root:password@localhost:5432/dev_club_db"
 GEMINI_API_KEY_ENV_VAR = "GEMINI_API_KEY"
@@ -39,6 +40,12 @@ def init_cors_middleware(app: FastAPI):
         init_logger().error(f"❌ Error configuring CORS middleware: {e}")
         exit(1)
 
+def init_gzip_middleware(app: FastAPI):
+    try:
+        app.add_middleware(GZipMiddleware, minimum_size=1000)
+    except Exception as e:
+        init_logger().error(f"❌ Error configuring GZip middleware: {e}")
+        exit(1)
 
 def init_genai():
     try:

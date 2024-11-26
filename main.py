@@ -5,7 +5,8 @@ from contextlib import asynccontextmanager
 from db_config import create_tables
 from routes import router
 from websockets_routes import websocket_router
-from app_config import init_cors_middleware
+from app_config import init_cors_middleware, init_gzip_middleware
+
 
 # --- FastAPI App Setup ---
 @asynccontextmanager
@@ -27,10 +28,13 @@ app = FastAPI(
 
 # --- Middleware Setup ---
 init_cors_middleware(app)
+init_gzip_middleware(app)
+print("🔧 Middleware configured successfully.")
 
 # --- Include Routers ---
 app.include_router(router)
 app.include_router(websocket_router)
+print("🔗 Routers included successfully.")
 
 if __name__ == "__main__":
     uvicorn.run(app, host="localhost", port=8000)

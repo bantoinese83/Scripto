@@ -73,7 +73,7 @@ const ScriptDetailsModal: React.FC<ScriptDetailsModalProps> = ({ isOpen, onReque
               onClick={handleCopy}
               className="mt-2 p-2 bg-indigo-600 text-white rounded hover:bg-indigo-700 flex items-center"
             >
-              <Clipboard className="w-5 h-5 mr-2" /> Copy
+              <Clipboard className="w-5 h-5 mr-2" />
             </button>
           </div>
         </div>

@@ -20,7 +20,7 @@ class ScriptMetadata(Base):
     how_it_works = Column(Text)
     script_content = Column(Text)
     script_content_hash = Column(String, index=True)
-    category = Column(String)
+    category = Column(String(50), nullable=False)
     upload_time = Column(DateTime, default=lambda: datetime.now(timezone.utc))
 
     __table_args__ = (

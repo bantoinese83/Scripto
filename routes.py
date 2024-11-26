@@ -14,7 +14,7 @@ from app_config import MetadataKeys, init_genai, init_logger
 from db_config import get_db
 from models import ScriptMetadata, ScriptDownvotes, IPLikes, IPDownvotes, ScriptLikes, ScriptRequest
 from schemas import ScriptMetadataModel, ScriptMetadataIn, UpdateMetadata, AnalyticsResponse, ScriptRequestModel
-from services import read_file_content, generate_prompt, extract_metadata, validate_metadata
+from utils import read_file_content, generate_prompt, extract_metadata, validate_metadata
 from websockets_routes import manager
 
 router = APIRouter()
@@ -429,10 +429,16 @@ def undo_like_script(script_id: uuid.UUID, request: Request, db: Session = Depen
 
         db.commit()
         return {"script_id": script_id, "like_count": script_like.like_count if script_like else 0}
+    except HTTPException as e:
+        raise e
+    except IntegrityError as e:
+        db.rollback()
+        init_logger().error(f"❌ Database Integrity Error: {e}")
+        raise HTTPException(status_code=409, detail="Database integrity error.")
     except Exception as e:
         db.rollback()
         init_logger().error(f"❌ An unexpected error occurred: {e}")
-        raise HTTPException(status_code=500, detail=f"An error occurred: {str(e)}")
+        raise HTTPException(status_code=500, detail="An unexpected error occurred.")
 
 
 @router.post("/v1/undo-downvote-script/{script_id}/", tags=["👎 Undo Downvote Script"])
@@ -453,9 +459,15 @@ def undo_downvote_script(script_id: uuid.UUID, request: Request, db: Session = D
 
         db.commit()
         return {"script_id": script_id, "downvote_count": script_downvote.downvote_count if script_downvote else 0}
+    except HTTPException as e:
+        raise e
+    except IntegrityError as e:
+        db.rollback()
+        init_logger().error(f"❌ Database Integrity Error: {e}")
+        raise HTTPException(status_code=409, detail="Database integrity error.")
     except Exception as e:
         db.rollback()
         init_logger().error(f"❌ An unexpected error occurred: {e}")
-        raise HTTPException(status_code=500, detail=f"An error occurred: {str(e)}")
+        raise HTTPException(status_code=500, detail="An unexpected error occurred.")
 
 
